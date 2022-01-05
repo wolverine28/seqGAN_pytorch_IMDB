@@ -27,6 +27,8 @@ import dill
 
 parser = argparse.ArgumentParser(description='Training Parameter')
 parser.add_argument('--cuda', action='store', default=None, type=int)
+parser.add_argument('--target', action='store', default='all', type=str, choices=['all', 'pos', 'neg'])
+parser.add_argument('--u_sample_ratio', action='store', default=1, type=int)
 opt = parser.parse_args()
 print(opt)
 
@@ -38,10 +40,6 @@ GENERATED_NUM = 10000
 # PRE_EPOCH_NUM = 120
 PRE_EPOCH_NUM = 60
 SEQ_LEN = 50
-opt.cuda = 0
-IR = 50
-
-EVAL_FILE = 'eval.data'
 
 if opt.cuda is not None and opt.cuda >= 0:
     torch.cuda.set_device(opt.cuda)
@@ -181,6 +179,7 @@ def main():
     TEXT.build_vocab(trainset,max_size=30000,vectors='glove.6B.100d', unk_init=torch.Tensor.normal_)
     LABEL.build_vocab(trainset)
 
+    ## save set
     # with open("log/TEXT.Field","wb")as f:
     #      dill.dump(TEXT,f)
 
@@ -190,6 +189,7 @@ def main():
     # torch.save(trainset.examples,'./log/trset_orig')
     # torch.save(testset.examples,'./log/tsset_orig')
 
+    ## load set
     # trainset_examples = torch.load('./log/trset_orig')
     # testset_examples = torch.load('./log/tsset_orig')
 
@@ -201,29 +201,36 @@ def main():
     # trainset = data.Dataset(trainset_examples,{'text':TEXT,'label':LABEL})
     # testset = data.Dataset(testset_examples,{'text':TEXT,'label':LABEL})
 
-    print('훈련 샘플의 개수 : {}'.format(len(trainset)))
-    print('테스트 샘플의 개수 : {}'.format(len(testset)))
-    # print(vars(trainset[0]))
-    positive_subset = [i for i in trainset if vars(i)['label']=='pos']
-    negative_subset = [i for i in trainset if vars(i)['label']=='neg']
-
-    # positive_count = int(len(negative_subset)/IR)
-    positive_count = 2000
-    positive_subset = np.random.choice(positive_subset,positive_count).tolist()
-    trainset = positive_subset
-
-
-    trainset = data.Dataset(trainset,{'text':TEXT,'label':LABEL})
-    
 
     VOCAB_SIZE = len(TEXT.vocab)
-    n_classes = 2
-    print('단어 집합의 크기 : {}'.format(VOCAB_SIZE))
-    print('클래스의 개수 : {}'.format(n_classes))
-    # print(TEXT.vocab.stoi)
+    print('VOCAB_SIZE : {}'.format(VOCAB_SIZE))
+
+    if opt.target!='all':
+        positive_subset = [i for i in trainset if vars(i)['label']=='pos']
+        negative_subset = [i for i in trainset if vars(i)['label']=='neg']
+        if opt.target=='pos':
+            subset = positive_subset
+            if opt.u_sample_ratio != 1:
+                count = int(len(subset)/opt.u_sample_ratio)
+                subset = np.random.choice(subset,count).tolist()
+            trainset = data.Dataset(subset,{'text':TEXT,'label':LABEL})
+        elif opt.target=='neg':
+            subset = negative_subset
+            if opt.u_sample_ratio != 1:
+                count = int(len(subset)/opt.u_sample_ratio)
+                subset = np.random.choice(subset,count).tolist()
+            trainset = data.Dataset(subset,{'text':TEXT,'label':LABEL})
+    if opt.u_sample_ratio != 1:
+        subset = trainset.examples
+        count = int(len(subset)/opt.u_sample_ratio)
+        subset = np.random.choice(subset,count).tolist()
+        trainset = data.Dataset(subset,{'text':TEXT,'label':LABEL})
+    
+
 
 
     train_loader = data.Iterator(dataset=trainset, batch_size = BATCH_SIZE)
+
     ###############################################################################
     # Define Networks
     generator = Generator(VOCAB_SIZE, g_emb_dim, g_hidden_dim, opt.cuda)
@@ -232,21 +239,21 @@ def main():
         generator = generator.cuda()
         discriminator = discriminator.cuda()
 
-    # pretrained_embeddings = TEXT.vocab.vectors
-    # print(pretrained_embeddings.shape)
-    # generator.emb.weight.data.copy_(pretrained_embeddings)
+    pretrained_embeddings = TEXT.vocab.vectors
+    print(pretrained_embeddings.shape)
+    generator.emb.weight.data.copy_(pretrained_embeddings)
 
-    # unk_idx = TEXT.vocab.stoi[TEXT.unk_token]
-    # pad_idx = TEXT.vocab.stoi[TEXT.pad_token]
-    # init_idx = TEXT.vocab.stoi[TEXT.init_token]
-    # eos_idx = TEXT.vocab.stoi[TEXT.eos_token]
+    unk_idx = TEXT.vocab.stoi[TEXT.unk_token]
+    pad_idx = TEXT.vocab.stoi[TEXT.pad_token]
+    init_idx = TEXT.vocab.stoi[TEXT.init_token]
+    eos_idx = TEXT.vocab.stoi[TEXT.eos_token]
 
-    # generator.emb.weight.data[unk_idx] = torch.zeros(g_emb_dim)
-    # generator.emb.weight.data[pad_idx] = torch.zeros(g_emb_dim)
-    # generator.emb.weight.data[init_idx] = torch.zeros(g_emb_dim)
-    # generator.emb.weight.data[eos_idx] = torch.zeros(g_emb_dim)
+    generator.emb.weight.data[unk_idx] = torch.zeros(g_emb_dim)
+    generator.emb.weight.data[pad_idx] = torch.zeros(g_emb_dim)
+    generator.emb.weight.data[init_idx] = torch.zeros(g_emb_dim)
+    generator.emb.weight.data[eos_idx] = torch.zeros(g_emb_dim)
 
-    # print(generator.emb.weight.data)
+    print(generator.emb.weight.data)
 
 
     print(' '.join([TEXT.vocab.itos[i] for i in generator.sample(1, SEQ_LEN)[0]]))
@@ -284,7 +291,7 @@ def main():
             print('Epoch [%d], loss: %f' % (epoch, loss))
 
     # Adversarial Training
-    rollout = Rollout(generator, 1)
+    rollout = Rollout(generator, 0.2) # set 0 for the exact paper mehtod, But in author's official code, it's set to 0.8
     print('#####################################################')
     print('Start Adeversatial Training...\n')
     gen_gan_loss = GANLoss()
@@ -335,7 +342,7 @@ def main():
             fake_dataset = TensorDataset(fake_samples)
             fake_loader = DataLoader(fake_dataset,batch_size=BATCH_SIZE)
 
-            for _ in range(1):
+            for _ in range(2):
                 loss = discriminator_train_epoch(discriminator, train_loader, fake_loader, dis_criterion, dis_optimizer)
                 print('Epoch [%d], Discriminator loss: %f' % (total_batch, loss))
                 
