@@ -247,12 +247,9 @@ def main():
     for epoch in range(PRE_EPOCH_NUM):
         loss = train_epoch(generator, train_loader, gen_criterion, gen_optimizer)
         print('Epoch [%d] Model Loss: %f'% (epoch, loss))
-
         # loss = eval_epoch(generator, train_loader, gen_criterion)
         # print('Epoch [%d] True Loss: %f' % (epoch, loss))
-
         print(' '.join([vocab.itos[i] for i in generator.sample(1, SEQ_LEN, SOS)[0]]))
-         
 
     # Pretrain Discriminator
     dis_criterion = nn.NLLLoss(reduction='sum')
@@ -315,6 +312,7 @@ def main():
             print(' '.join([vocab.itos[i] for i in generator.sample(1, SEQ_LEN, SOS)[0]]))
 
 
+
         rollout.update_params()
 
         for _ in range(3):
@@ -327,6 +325,9 @@ def main():
             for _ in range(2):
                 loss = discriminator_train_epoch(discriminator, train_loader, fake_loader, dis_criterion, dis_optimizer)
                 print('Epoch [%d], Discriminator loss: %f' % (total_batch, loss))
-                
+
+        if total_batch % 10 == 0:
+            torch.save(generator,'./log/gen_{}_{:04d}.t7'.format(opt.u_sample_ratio,total_batch))  
+            torch.save(discriminator,'./log/gen_{}_{:04d}.t7'.format(opt.u_sample_ratio,total_batch))                
 if __name__ == '__main__':
     main()
