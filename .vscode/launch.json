@@ -10,7 +10,8 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["--cuda", "0", "--target", "all", "--u_sample_ratio", "50"]
+            // "args": ["--cuda", "0", "--target", "all", "--u_sample_ratio", "1"]
+            "args": ["--cuda", "0", "--u_sample_ratio", "10"]
         }
     ]
 }
